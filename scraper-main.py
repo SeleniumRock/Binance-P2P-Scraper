@@ -29,7 +29,7 @@ fiat_currencies = [
 
 # ---- Data Retrieval ----
 def scrape_page(driver):
-    """Scrape data from the current page."""
+    """Scrape data from the current page with added data validity checks."""
     advertisers = []
     prices = []
     amounts = []
@@ -39,26 +39,39 @@ def scrape_page(driver):
 
     if not rows:
         print("No rows found on the page.")
-    
+        return advertisers, prices, amounts, payment_methods
+
     for row in rows:
         try:
-            # Use XPath to extract the advertiser name
+            # Extract and validate advertiser name
             name_elem = row.find_element(By.CSS_SELECTOR, "a[href^='/advertiserDetail']")
-            advertiser_name = name_elem.text
+            advertiser_name = name_elem.text.strip()
+            if not advertiser_name:
+                print("Advertiser name is empty. Skipping this row.")
+                continue
 
-            # Extract price (convert to float)
+            # Extract and validate price
             price_elem = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2) .headline5')
-            price = price_elem.text.replace(',', '')  # Remove any commas from numbers
-            price = float(price)  # Convert string to float
+            price_text = price_elem.text.replace(',', '').strip()
+            if not price_text.isdigit():
+                print("Price data is invalid. Skipping this row.")
+                continue
+            price = float(price_text)
 
-            # Extract available amount (clean up "USDT" text and convert to float)
+            # Extract and validate available amount
             amount_elem = row.find_element(By.CSS_SELECTOR, 'td:nth-child(3) .body3')
-            available_amount = amount_elem.text.replace(' USDT', '').replace(',', '')  # Remove "USDT" and commas
-            available_amount = float(available_amount)  # Convert string to float
+            available_amount_text = amount_elem.text.replace(' USDT', '').replace(',', '').strip()
+            if not available_amount_text.isdigit():
+                print("Available amount data is invalid. Skipping this row.")
+                continue
+            available_amount = float(available_amount_text)
 
-            # Extract payment methods
+            # Extract and validate payment methods
             payment_methods_elems = row.find_elements(By.CSS_SELECTOR, 'td:nth-child(4) .PaymentMethodItem__text')
-            payment_methods_list = [pm.text for pm in payment_methods_elems]
+            payment_methods_list = [pm.text.strip() for pm in payment_methods_elems if pm.text.strip()]
+            if not payment_methods_list:
+                print("No payment methods found for this row. Skipping.")
+                continue
             payment_methods_str = ', '.join(payment_methods_list)
 
             # Append data to lists
@@ -67,10 +80,10 @@ def scrape_page(driver):
             amounts.append(available_amount)
             payment_methods.append(payment_methods_str)
 
-        except NoSuchElementException:
-            None
-        except Exception as e:
-            print(f"Error occurred while processing a row: {e}")
+        except NoSuchElementException as e:
+            print(f"Element not found in a row: {e}")
+        except ValueError as e:
+            print(f"Data format issue in a row: {e}")
 
     return advertisers, prices, amounts, payment_methods
 
