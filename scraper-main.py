@@ -26,6 +26,7 @@ fiat_currencies = [
     "YER", "ZAR", "ZMW"
 ]
 
+
 # ---- Data Retrieval ----
 def scrape_page(driver):
     """Scrape data from the current page."""
@@ -48,12 +49,12 @@ def scrape_page(driver):
             # Extract price (convert to float)
             price_elem = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2) .headline5')
             price = price_elem.text.replace(',', '')  # Remove any commas from numbers
-            price = float(price) if price else None  # Convert string to float or set to None if empty
+            price = float(price)  # Convert string to float
 
             # Extract available amount (clean up "USDT" text and convert to float)
             amount_elem = row.find_element(By.CSS_SELECTOR, 'td:nth-child(3) .body3')
             available_amount = amount_elem.text.replace(' USDT', '').replace(',', '')  # Remove "USDT" and commas
-            available_amount = float(available_amount) if available_amount else None  # Convert string to float or set to None if empty
+            available_amount = float(available_amount)  # Convert string to float
 
             # Extract payment methods
             payment_methods_elems = row.find_elements(By.CSS_SELECTOR, 'td:nth-child(4) .PaymentMethodItem__text')
@@ -67,7 +68,7 @@ def scrape_page(driver):
             payment_methods.append(payment_methods_str)
 
         except NoSuchElementException:
-            continue  # Skip to the next row if any element is not found
+            None
         except Exception as e:
             print(f"Error occurred while processing a row: {e}")
 
@@ -185,7 +186,7 @@ def main():
     client = gspread.authorize(creds)
 
     # Open the Google Sheets workbook by ID
-    sheet_id = "insert sheed_id"
+    sheet_id = "insert sheet id"
     workbook = client.open_by_key(sheet_id)
 
     for currency in fiat_currencies:
@@ -200,32 +201,46 @@ def main():
             # Handle pagination and data extraction
             all_advertisers, all_prices, all_amounts, all_payment_methods = paginate_and_load_pages(driver)
 
-            # Check if any data was scraped
-            if all_advertisers:
-                # Create a DataFrame to organize the scraped data
-                df = pd.DataFrame({
-                    "Advertiser": all_advertisers,
-                    "Price": all_prices,
-                    "Available Amount (USDT)": all_amounts,
-                    "Payment Method": all_payment_methods
-                })
+            # Create a DataFrame from the lists
+            df = pd.DataFrame({
+                    'Advertiser Name': all_advertisers,
+                    'Price': all_prices,
+                    'Available Amount': all_amounts,
+                    'Payment Methods': all_payment_methods,
+            })
 
-                # Print the shape of the DataFrame and its content
-                print(f"Data scraped for {currency}: {df.shape[0]} rows.")
-                print(df)
+            # Create or access the corresponding worksheet for the currency
+            try:
+                worksheet = workbook.worksheet(currency)
+                print(f"Updating existing worksheet for {currency}...")
+            except gspread.WorksheetNotFound:
+                worksheet = workbook.add_worksheet(title=currency, rows="1000", cols="10")
+                print(f"Created new worksheet for {currency}...")
 
-                # Update the Google Sheets with the scraped data
-                update_single_fiat_payment_methods(currency, df, workbook)
+            # Clear existing data and update the worksheet with new data
+            worksheet.clear()
+            worksheet.update([df.columns.values.tolist()] + df.values.tolist())
 
-            else:
-                print(f"No data found for {currency}.")
+            time.sleep(2)
+            # Call the sorting program after updating the sheet
+            process_payment_methods_for_fiat(currency)
+            
+            time.sleep(2)
+            # After updating a fiat worksheet, update the "Main" sheet
+            update_single_fiat_payment_methods(currency)
+
+            print(f"Data for {currency} has been scraped and updated successfully.\n")
 
         except Exception as e:
-            print(f"An error occurred while scraping {currency}: {e}")
+            print(f"An error occurred while processing currency {currency}: {e}")
 
+    # Get current date and time and update column C for all rows from 2 to 94
+    main_sheet = workbook.worksheet('Main')
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # main_sheet.update(f'C2:C94', [[current_time]] * 93)  # Updates C2 to C94
+    main_sheet.update(range_name='D2:D94', values=[[current_time]] * 93)
     # Close the WebDriver
     driver.quit()
 
-# Run the main function
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
